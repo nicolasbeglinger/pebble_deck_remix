@@ -9,22 +9,28 @@ var clay = new Clay(clayConfig);
 // First capture group is sent to the watch (max 12 chars).
 var defaultApiRegex = /"summary"\s*:\s*"?([^"]+)"?/;
 
-// Convert Open-Meteo weather code to human-readable condition
+// Convert an Open-Meteo (WMO) weather code to its METAR abbreviation.
+// The watch line has 13 columns after "[MET] >> ", and the temperature can take 5
+// ("-12C "), so the condition is kept to 4 characters. That also leaves room for the
+// age marker the watch appends once a reading is more than an hour old.
 function weatherCodeToCondition(code) {
-  if (code === 0) return "CLEAR";
-  if (code <= 3) return "CLOUDY";
-  if (code <= 48) return "FOG";
-  if (code <= 55) return "DRIZZLE";
-  if (code <= 57) return "FZ. DRIZZLE";
-  if (code <= 65) return "RAIN";
-  if (code <= 67) return "FZ. RAIN";
-  if (code <= 75) return "SNOW";
-  if (code <= 77) return "SNOW GRAINS";
-  if (code <= 82) return "SHOWERS";
-  if (code <= 86) return "SNOW SHWRS";
-  if (code === 95) return "T-STORM";
-  if (code <= 99) return "T-STORM";
-  return "UNKNOWN";
+  if (code === 0) return "CLR";
+  if (code === 1) return "FEW";
+  if (code === 2) return "SCT";
+  if (code === 3) return "OVC";
+  if (code === 45) return "FG";
+  if (code === 48) return "FZFG";
+  if (code <= 55) return "DZ";
+  if (code <= 57) return "FZDZ";
+  if (code <= 65) return "RA";
+  if (code <= 67) return "FZRA";
+  if (code <= 75) return "SN";
+  if (code === 77) return "SG";
+  if (code <= 82) return "SHRA";
+  if (code <= 86) return "SHSN";
+  if (code === 95) return "TS";
+  if (code <= 99) return "TSGR";
+  return "UNK";
 }
 
 // Helper function for XMLHttpRequest with optional auth header
@@ -165,24 +171,27 @@ function updateData() {
         "&current=temperature_2m,weather_code";
 
       xhrRequest(url, "GET", null, function (status, responseText) {
-        var temperature = 0;
-        var conditions;
+        // A leading "!" tells the watch this is a failure, not a reading: it keeps
+        // showing the last good one (with its age) instead of replacing it.
+        var conditions = "!OFFLINE";
 
         if (status === 200 && responseText) {
-          var json = JSON.parse(responseText);
+          try {
+            var json = JSON.parse(responseText);
 
-          var temp_value = Math.round(json.current.temperature_2m);
+            var temp_value = Math.round(json.current.temperature_2m);
 
-          if (config.useFahrenheit) {
-            temp_value = Math.round((temp_value * 9) / 5 + 32);
+            if (config.useFahrenheit) {
+              temp_value = Math.round((temp_value * 9) / 5 + 32);
+            }
+
+            conditions =
+              temp_value +
+              (config.useFahrenheit ? "F " : "C ") +
+              weatherCodeToCondition(json.current.weather_code);
+          } catch (e) {
+            console.error(e);
           }
-
-          conditions =
-            temp_value +
-            (config.useFahrenheit ? "F " : "C ") +
-            weatherCodeToCondition(json.current.weather_code);
-        } else {
-          conditions = "OFFLINE";
         }
 
         fetchCustomApi(conditions, altitude, config);
@@ -190,7 +199,7 @@ function updateData() {
     },
     function (err) {
       console.log("Error requesting location!");
-      fetchCustomApi("NO GPS", 0, config);
+      fetchCustomApi("!NO GPS", 0, config);
     },
     {
       timeout: 15000,

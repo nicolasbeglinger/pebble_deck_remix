@@ -3,6 +3,16 @@
 #define SETTINGS_KEY 1
 #define MAX_SLOTS 8
 
+// Console lines: the first one starts under the HUD divider and they stack 16 px apart.
+#define SLOT_Y 76
+#define SLOT_H 16
+// In 12h mode the time is centred in the space left of the AM/PM label rather than the
+// full width, so the widest hours (10:08) can't run into it.
+#define AMPM_INSET 12
+// Both ASCII bars use 5 segments: that's what leaves room for a 5-digit step count on a
+// 22-column line once the "[STP] >> " prefix has taken its 9.
+#define BAR_SEGMENTS 5
+
 // HRV comes from the sensor's peak-to-peak (RR) intervals. The Goodix algorithm reports
 // bursts of up to 4 consecutive intervals, each as its own HealthEventHRVUpdate, so RMSSD
 // over a rolling window of them is a real measurement rather than an approximation.
@@ -69,14 +79,17 @@ static GFont s_sys_font;
 
 // Global Data Caches
 static int s_battery_level = 0;
+static bool s_battery_charging = false;
+static bool s_phone_connected = true;
 static int s_compass_degrees = 0;
 static const char *s_compass_dir = "---";
 static bool s_compass_valid = false;
 static int s_hr_value = 0;
 static int s_steps_value = 0;
-static char s_weather_cache[32] = "SCANNING...";
+static char s_weather_cache[16] = "SCANNING...";  // Longest real content is "-12C FZFG"
 static char s_api_cache[16] = "NO DATA";
 static int s_alt_cache = 0;
+static time_t s_weather_received_at = 0;  // 0 until the first successful fetch
 static char s_moon_cache[16] = "";
 static int s_moon_day = -1;
 
@@ -127,18 +140,27 @@ static void prv_save_settings() {
   persist_write_data(SETTINGS_KEY, &settings, sizeof(settings));
 }
 
+// Clay happily lets both colours be the same, which leaves a blank face with no way back
+// except the config page. Fall back to black or white text, whichever reads on the background.
+static void prv_sanitize_colors() {
+  if (gcolor_equal(settings.BackgroundColor, settings.TextColor)) {
+    settings.TextColor = gcolor_legible_over(settings.BackgroundColor);
+  }
+}
+
 static void prv_load_settings() {
   prv_default_settings();
   persist_read_data(SETTINGS_KEY, &settings, sizeof(settings));
+  prv_sanitize_colors();
 }
 
 // --- HELPER: ASCII PROGRESS BAR ---
-static void make_ascii_bar(int percent, char *buffer, int segments) {
+static void make_ascii_bar(int percent, char *buffer, int segments, char fill_char) {
   buffer[0] = '[';
   int fill = (percent * segments) / 100;
   if(fill > segments) fill = segments;
   for(int i = 0; i < segments; i++) {
-    buffer[i+1] = (i < fill) ? '|' : '.';
+    buffer[i+1] = (i < fill) ? fill_char : '.';
   }
   buffer[segments+1] = ']';
   buffer[segments+2] = '\0';
@@ -208,7 +230,8 @@ static void render_slots() {
       }
       case COMP_BATTERY: {
         char bar_str[10];
-        make_ascii_bar(s_battery_level, bar_str, 6);
+        // The bar fills with '+' instead of '|' while on external power.
+        make_ascii_bar(s_battery_level, bar_str, BAR_SEGMENTS, s_battery_charging ? '+' : '|');
         snprintf(buffer, 32, "[PWR] >> %s %d%%", bar_str, s_battery_level);
         break;
       }
@@ -254,16 +277,27 @@ static void render_slots() {
 #if defined(PBL_HEALTH)
         char bar_str[10];
         int percent = (s_steps_value * 100) / 10000;
-        make_ascii_bar(percent, bar_str, 6);
+        make_ascii_bar(percent, bar_str, BAR_SEGMENTS, '|');
         snprintf(buffer, 32, "[STP] >> %s %d", bar_str, s_steps_value);
 #else
         snprintf(buffer, 32, "[STP] >> N/A");
 #endif
         break;
       }
-      case COMP_WEATHER:
-        snprintf(buffer, 32, "[MET] >> %s", s_weather_cache);
+      case COMP_WEATHER: {
+        // The phone refreshes every 30 min, so a reading over an hour old has missed at
+        // least one update. Show its age rather than dropping it. The reading is at most
+        // 9 chars ("-12C FZFG"), so the marker fits inside the 13 columns after the prefix.
+        int age_h = s_weather_received_at ? (int)((time(NULL) - s_weather_received_at) / 3600) : 0;
+        if (age_h > 9) {
+          snprintf(buffer, 32, "[MET] >> %s 9H+", s_weather_cache);
+        } else if (age_h >= 1) {
+          snprintf(buffer, 32, "[MET] >> %s %dH", s_weather_cache, age_h);
+        } else {
+          snprintf(buffer, 32, "[MET] >> %s", s_weather_cache);
+        }
         break;
+      }
       case COMP_CUSTOM_API:
         snprintf(buffer, 32, "[API] >> %s", s_api_cache);
         break;
@@ -348,12 +382,25 @@ static void prv_update_display() {
 static void update_time_data() {
   time_t temp = time(NULL);
   struct tm *tick_time = localtime(&temp);
+  bool is_24h = clock_is_24h_style();
 
   static char s_time_buffer[6];
-  strftime(s_time_buffer, sizeof(s_time_buffer), clock_is_24h_style() ? "%H:%M" : "%I:%M", tick_time);
+  strftime(s_time_buffer, sizeof(s_time_buffer), is_24h ? "%H:%M" : "%I:%M", tick_time);
+  if (!is_24h && s_time_buffer[0] == '0') {
+    // "08:08" reads as 24h; a 12h clock shows "8:08".
+    memmove(s_time_buffer, s_time_buffer + 1, sizeof(s_time_buffer) - 1);
+  }
   text_layer_set_text(s_time_layer, s_time_buffer);
 
-  if (clock_is_24h_style()) {
+  // The layer is created at full width, which is right for 24h.
+  static bool s_laid_out_24h = true;
+  if (is_24h != s_laid_out_24h) {
+    int w = s_full_bounds.size.w - (is_24h ? 0 : AMPM_INSET);
+    layer_set_frame(text_layer_get_layer(s_time_layer), GRect(0, 12, w, 60));
+    s_laid_out_24h = is_24h;
+  }
+
+  if (is_24h) {
     layer_set_hidden(text_layer_get_layer(s_ampm_layer), true);
   } else {
     s_ampm_buffer[0] = tick_time->tm_hour >= 12 ? 'P' : 'A';
@@ -562,15 +609,26 @@ static void update_steps() {
   render_slots();
 }
 
+static void prv_request_weather() {
+  DictionaryIterator *iter;
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK) return;
+  dict_write_uint8(iter, MESSAGE_KEY_RequestWeather, 1);
+  app_message_outbox_send();
+}
+
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   update_time_data();
   prv_hrv_tick(time(NULL));
   if (tick_time->tm_min % 30 == 0) {
-    DictionaryIterator *iter;
-    app_message_outbox_begin(&iter);
-    dict_write_uint8(iter, MESSAGE_KEY_RequestWeather, 1);
-    app_message_outbox_send();
+    prv_request_weather();
   }
+}
+
+static void connection_handler(bool connected) {
+  // The phone just came back: don't wait up to half an hour for the next scheduled fetch.
+  if (connected && !s_phone_connected) prv_request_weather();
+  s_phone_connected = connected;
+  layer_mark_dirty(s_hud_layer);
 }
 
 static void health_handler(HealthEventType event, void *context) {
@@ -595,19 +653,32 @@ static void health_handler(HealthEventType event, void *context) {
 
 static void battery_callback(BatteryChargeState state) {
   s_battery_level = state.charge_percent;
+  s_battery_charging = state.is_charging || state.is_plugged;
   render_slots();
 }
 
 // --- GRAPHICS UPDATERS ---
 static void hud_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
+  // Timeline Quick View pushes the bottom edge up; the lower brackets follow it instead
+  // of disappearing under the peek.
+  GRect visible = layer_get_unobstructed_bounds(layer);
+  int bottom = visible.origin.y + visible.size.h;
   graphics_context_set_stroke_color(ctx, settings.TextColor);
   graphics_context_set_stroke_width(ctx, 1);
 
   int mid_x = bounds.size.w / 2;
-  graphics_draw_line(ctx, GPoint(mid_x - 12, 4), GPoint(mid_x + 12, 4));
-  graphics_draw_line(ctx, GPoint(mid_x - 12, 4), GPoint(mid_x - 12, 8));
-  graphics_draw_line(ctx, GPoint(mid_x + 12, 4), GPoint(mid_x + 12, 8));
+  if (s_phone_connected) {
+    graphics_draw_line(ctx, GPoint(mid_x - 12, 4), GPoint(mid_x + 12, 4));
+    graphics_draw_line(ctx, GPoint(mid_x - 12, 4), GPoint(mid_x - 12, 8));
+    graphics_draw_line(ctx, GPoint(mid_x + 12, 4), GPoint(mid_x + 12, 8));
+  } else {
+    // The top tab becomes the phone-link warning. Nothing else on the face says the
+    // phone is gone, and without it weather and the custom API silently stop updating.
+    graphics_context_set_text_color(ctx, settings.TextColor);
+    graphics_draw_text(ctx, "NO LINK", s_sys_font, GRect(0, -1, bounds.size.w, 16),
+                       GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+  }
 
   graphics_draw_line(ctx, GPoint(8, 74), GPoint(bounds.size.w - 8, 74));
 
@@ -616,10 +687,10 @@ static void hud_update_proc(Layer *layer, GContext *ctx) {
   graphics_draw_line(ctx, GPoint(2, 2), GPoint(2, 2 + len));
   graphics_draw_line(ctx, GPoint(bounds.size.w - 3, 2), GPoint(bounds.size.w - 3 - len, 2));
   graphics_draw_line(ctx, GPoint(bounds.size.w - 3, 2), GPoint(bounds.size.w - 3, 2 + len));
-  graphics_draw_line(ctx, GPoint(2, bounds.size.h - 3), GPoint(2 + len, bounds.size.h - 3));
-  graphics_draw_line(ctx, GPoint(2, bounds.size.h - 3), GPoint(2, bounds.size.h - 3 - len));
-  graphics_draw_line(ctx, GPoint(bounds.size.w - 3, bounds.size.h - 3), GPoint(bounds.size.w - 3 - len, bounds.size.h - 3));
-  graphics_draw_line(ctx, GPoint(bounds.size.w - 3, bounds.size.h - 3), GPoint(bounds.size.w - 3, bounds.size.h - 3 - len));
+  graphics_draw_line(ctx, GPoint(2, bottom - 3), GPoint(2 + len, bottom - 3));
+  graphics_draw_line(ctx, GPoint(2, bottom - 3), GPoint(2, bottom - 3 - len));
+  graphics_draw_line(ctx, GPoint(bounds.size.w - 3, bottom - 3), GPoint(bounds.size.w - 3 - len, bottom - 3));
+  graphics_draw_line(ctx, GPoint(bounds.size.w - 3, bottom - 3), GPoint(bounds.size.w - 3, bottom - 3 - len));
 }
 
 // --- APPMESSAGE HANDLERS ---
@@ -631,7 +702,17 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
   bool settings_changed = false;
 
   if (conditions_tuple) {
-    snprintf(s_weather_cache, sizeof(s_weather_cache), "%s", conditions_tuple->value->cstring);
+    const char *conditions = conditions_tuple->value->cstring;
+    if (conditions[0] == '!') {
+      // A failed fetch ("!OFFLINE", "!NO GPS"). Keep the last real reading on screen and let
+      // the age marker say it's old; only show the error itself if there's nothing better.
+      if (s_weather_received_at == 0) {
+        snprintf(s_weather_cache, sizeof(s_weather_cache), "%s", conditions + 1);
+      }
+    } else {
+      snprintf(s_weather_cache, sizeof(s_weather_cache), "%s", conditions);
+      s_weather_received_at = time(NULL);
+    }
   }
 
   if (custom_api_tuple) {
@@ -685,6 +766,7 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
   }
 
   if (settings_changed) {
+    prv_sanitize_colors();
     prv_save_settings();
     prv_hrv_on_layout_change();
     prv_update_display();
@@ -693,20 +775,28 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
   render_slots();
 }
 
-static void prv_unobstructed_change(AnimationProgress progress, void *context) {
-  GRect bounds = layer_get_unobstructed_bounds(s_window_layer);
-  bool peak_visible = (bounds.size.h < s_full_bounds.size.h);
-  int base_y = 80;
-
+// Timeline Quick View. The lines keep their places and spacing; the ones that would sit
+// under the peek are hidden. Five lines fit above it at full spacing, so there's no need to
+// squeeze the stack (which used to stick after the peek had gone).
+static void prv_layout_slots(GRect visible) {
+  int visible_bottom = visible.origin.y + visible.size.h;
   for(int i = 0; i < MAX_SLOTS; i++) {
-    layer_set_frame(text_layer_get_layer(s_slot_layers[i]),
-                    GRect(10, base_y + (i * 14), bounds.size.w - 20, 16));
-    if (peak_visible && i >= 5) {
-      layer_set_hidden(text_layer_get_layer(s_slot_layers[i]), true);
-    } else {
-      layer_set_hidden(text_layer_get_layer(s_slot_layers[i]), false);
-    }
+    int slot_bottom = SLOT_Y + (i + 1) * SLOT_H;
+    layer_set_hidden(text_layer_get_layer(s_slot_layers[i]), slot_bottom > visible_bottom);
   }
+}
+
+static void prv_unobstructed_will_change(GRect final_unobstructed_screen_area, void *context) {
+  prv_layout_slots(final_unobstructed_screen_area);
+}
+
+static void prv_unobstructed_change(AnimationProgress progress, void *context) {
+  layer_mark_dirty(s_hud_layer);  // Bottom brackets track the moving edge
+}
+
+static void prv_unobstructed_did_change(void *context) {
+  prv_layout_slots(layer_get_unobstructed_bounds(s_window_layer));
+  layer_mark_dirty(s_hud_layer);
 }
 
 // --- WINDOW LOAD / UNLOAD ---
@@ -735,11 +825,8 @@ static void main_window_load(Window *window) {
   layer_add_child(s_window_layer, text_layer_get_layer(s_ampm_layer));
 
   // Loop generation for all console lines
-  int y = 76;
-  int step = 16;
-
   for(int i = 0; i < MAX_SLOTS; i++) {
-    s_slot_layers[i] = text_layer_create(GRect(10, y + (i * step), bounds.size.w - 20, 16));
+    s_slot_layers[i] = text_layer_create(GRect(10, SLOT_Y + (i * SLOT_H), bounds.size.w - 20, SLOT_H));
     text_layer_set_background_color(s_slot_layers[i], GColorClear);
     text_layer_set_font(s_slot_layers[i], s_sys_font);
     text_layer_set_text_alignment(s_slot_layers[i], GTextAlignmentLeft);
@@ -747,8 +834,13 @@ static void main_window_load(Window *window) {
   }
 
   // Properly subbing to Pebble's Quick View / Unobstructed Area API
-  UnobstructedAreaHandlers handlers = { .change = prv_unobstructed_change };
+  UnobstructedAreaHandlers handlers = {
+    .will_change = prv_unobstructed_will_change,
+    .change = prv_unobstructed_change,
+    .did_change = prv_unobstructed_did_change
+  };
   unobstructed_area_service_subscribe(handlers, NULL);
+  prv_layout_slots(layer_get_unobstructed_bounds(s_window_layer));
 
   prv_update_display();
 }
@@ -796,16 +888,17 @@ static void init() {
   }
 
   battery_state_service_subscribe(battery_callback);
+  s_phone_connected = connection_service_peek_pebble_app_connection();
+  connection_service_subscribe((ConnectionHandlers) {
+    .pebble_app_connection_handler = connection_handler
+  });
 
   // Open up AppMessage inbox to receive the weather and upcoming custom API strings
   app_message_register_inbox_received(inbox_received_callback);
   app_message_open(256, 256);
 
   // Request weather immediately on startup
-  DictionaryIterator *iter;
-  app_message_outbox_begin(&iter);
-  dict_write_uint8(iter, MESSAGE_KEY_RequestWeather, 1);
-  app_message_outbox_send();
+  prv_request_weather();
 
   battery_callback(battery_state_service_peek());
   update_time_data();

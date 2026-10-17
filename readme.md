@@ -9,7 +9,7 @@ Also many apologies as a lot of this code is vibe coded. tbh I wanted this to wo
 
 ## Reading the display
 
-- `[MET]` shows the temperature and the METAR code for the conditions (CLR, FEW, SCT, OVC, FG, FZFG, DZ, FZDZ, RA, FZRA, SN, SG, SHRA, SHSN, TS, TSGR). If the phone hasn't delivered a fresh reading for over an hour the line ends with its age, e.g. `12C OVC 3H`.
+- `[MET]` shows the temperature and the conditions in plain words (CLEAR, CLOUDY, FOG, DRIZZLE, FRZ DRZL, RAIN, FRZ RAIN, SNOW, SHOWERS, T-STORM). The "Pilot weather" setting switches to METAR codes instead (CLR, FEW, SCT, OVC, FG, FZFG, DZ, FZDZ, RA, FZRA, SN, SG, SHRA, SHSN, TS, TSGR). If the phone hasn't delivered a fresh reading for over an hour the `>>` is replaced by its age, e.g. `[MET] 3H 12C OVC`, or `9+` beyond nine hours.
 - `[PWR]` fills its bar with `+` instead of `|` while the watch is on the charger.
 - `NO LINK` replaces the tab at the top of the screen when the phone is out of reach. Weather and the custom API can't update until it's back.
 - Each line fits 22 characters; the step bar is 5 segments wide so a 5-digit count still fits.

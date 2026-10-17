@@ -9,11 +9,24 @@ var clay = new Clay(clayConfig);
 // First capture group is sent to the watch (max 12 chars).
 var defaultApiRegex = /"summary"\s*:\s*"?([^"]+)"?/;
 
-// Convert an Open-Meteo (WMO) weather code to its METAR abbreviation.
-// The watch line has 13 columns after "[MET] >> ", and the temperature can take 5
-// ("-12C "), so the condition is kept to 4 characters. That also leaves room for the
-// age marker the watch appends once a reading is more than an hour old.
-function weatherCodeToCondition(code) {
+// Convert an Open-Meteo (WMO) weather code to a condition string.
+// The watch line has 13 columns after "[MET] >> " and the temperature can take 5
+// ("-12C "), so plain words are kept to 8 characters and METAR codes to 4.
+function weatherCodeToCondition(code, useMetar) {
+  if (!useMetar) {
+    if (code === 0) return "CLEAR";
+    if (code <= 3) return "CLOUDY";
+    if (code <= 48) return "FOG";
+    if (code <= 55) return "DRIZZLE";
+    if (code <= 57) return "FRZ DRZL";
+    if (code <= 65) return "RAIN";
+    if (code <= 67) return "FRZ RAIN";
+    if (code <= 77) return "SNOW";
+    if (code <= 82) return "SHOWERS";
+    if (code <= 86) return "SNOW";
+    if (code <= 99) return "T-STORM";
+    return "UNKNOWN";
+  }
   if (code === 0) return "CLR";
   if (code === 1) return "FEW";
   if (code === 2) return "SCT";
@@ -56,6 +69,7 @@ function loadApiConfig() {
     regex: defaultApiRegex,
     auth: "",
     useFahrenheit: false,
+    useMetar: false,
   };
   try {
     var raw = localStorage.getItem("clay-settings");
@@ -74,6 +88,9 @@ function loadApiConfig() {
       }
       if (claySettings.TemperatureUnit) {
         config.useFahrenheit = claySettings.TemperatureUnit;
+      }
+      if (claySettings.MetarWeather) {
+        config.useMetar = claySettings.MetarWeather;
       }
     }
   } catch (e) {
@@ -188,7 +205,7 @@ function updateData() {
             conditions =
               temp_value +
               (config.useFahrenheit ? "F " : "C ") +
-              weatherCodeToCondition(json.current.weather_code);
+              weatherCodeToCondition(json.current.weather_code, config.useMetar);
           } catch (e) {
             console.error(e);
           }

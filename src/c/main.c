@@ -86,7 +86,7 @@ static const char *s_compass_dir = "---";
 static bool s_compass_valid = false;
 static int s_hr_value = 0;
 static int s_steps_value = 0;
-static char s_weather_cache[16] = "SCANNING...";  // Longest real content is "-12C FZFG"
+static char s_weather_cache[16] = "SCANNING...";  // Longest real content is "-12C FRZ DRZL"
 static char s_api_cache[16] = "NO DATA";
 static int s_alt_cache = 0;
 static time_t s_weather_received_at = 0;  // 0 until the first successful fetch
@@ -286,13 +286,14 @@ static void render_slots() {
       }
       case COMP_WEATHER: {
         // The phone refreshes every 30 min, so a reading over an hour old has missed at
-        // least one update. Show its age rather than dropping it. The reading is at most
-        // 9 chars ("-12C FZFG"), so the marker fits inside the 13 columns after the prefix.
+        // least one update. Show its age rather than dropping it. The age takes the place
+        // of the ">>" separator because a plain-words reading ("-12C FRZ DRZL") already
+        // fills the 13 columns after the prefix.
         int age_h = s_weather_received_at ? (int)((time(NULL) - s_weather_received_at) / 3600) : 0;
         if (age_h > 9) {
-          snprintf(buffer, 32, "[MET] >> %s 9H+", s_weather_cache);
+          snprintf(buffer, 32, "[MET] 9+ %s", s_weather_cache);
         } else if (age_h >= 1) {
-          snprintf(buffer, 32, "[MET] >> %s %dH", s_weather_cache, age_h);
+          snprintf(buffer, 32, "[MET] %dH %s", age_h, s_weather_cache);
         } else {
           snprintf(buffer, 32, "[MET] >> %s", s_weather_cache);
         }

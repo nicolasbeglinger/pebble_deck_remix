@@ -39,6 +39,13 @@
         "defaultValue": false
       },
       {
+        "type": "toggle",
+        "messageKey": "MetarWeather",
+        "label": "Pilot weather (METAR codes)",
+        "defaultValue": false,
+        "description": "Shows conditions as METAR abbreviations (OVC, FZRA, SHSN...) instead of plain words."
+      },
+      {
         "type": "slider",
         "messageKey": "Tz2Offset",
         "label": "Second Timezone (UTC offset)",

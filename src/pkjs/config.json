@@ -74,6 +74,16 @@
       },
       {
         "type": "select",
+        "messageKey": "Density",
+        "label": "Density",
+        "defaultValue": "high",
+        "options": [
+          { "label": "High (10 lines)", "value": "high" },
+          { "label": "Low (8 lines)", "value": "low" }
+        ]
+      },
+      {
+        "type": "select",
         "messageKey": "ActiveSlots1",
         "label": "Slot 1 (Top Line)",
         "defaultValue": "1",
@@ -91,7 +101,12 @@
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
           { "label": "Moon Phase [LUN]", "value": "12" },
-          { "label": "Heart Rate Variability [HRV]", "value": "13" }
+          { "label": "Heart Rate Variability [HRV]", "value": "13" },
+          { "label": "Plugin Reading 1 [PL1]", "value": "14" },
+          { "label": "Plugin Reading 2 [PL2]", "value": "15" },
+          { "label": "Plugin Reading 3 [PL3]", "value": "16" },
+          { "label": "Plugin Reading 4 [PL4]", "value": "17" },
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
         ]
       },
       {
@@ -113,7 +128,12 @@
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
           { "label": "Moon Phase [LUN]", "value": "12" },
-          { "label": "Heart Rate Variability [HRV]", "value": "13" }
+          { "label": "Heart Rate Variability [HRV]", "value": "13" },
+          { "label": "Plugin Reading 1 [PL1]", "value": "14" },
+          { "label": "Plugin Reading 2 [PL2]", "value": "15" },
+          { "label": "Plugin Reading 3 [PL3]", "value": "16" },
+          { "label": "Plugin Reading 4 [PL4]", "value": "17" },
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
         ]
       },
       {
@@ -135,7 +155,12 @@
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
           { "label": "Moon Phase [LUN]", "value": "12" },
-          { "label": "Heart Rate Variability [HRV]", "value": "13" }
+          { "label": "Heart Rate Variability [HRV]", "value": "13" },
+          { "label": "Plugin Reading 1 [PL1]", "value": "14" },
+          { "label": "Plugin Reading 2 [PL2]", "value": "15" },
+          { "label": "Plugin Reading 3 [PL3]", "value": "16" },
+          { "label": "Plugin Reading 4 [PL4]", "value": "17" },
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
         ]
       },
       {
@@ -157,7 +182,12 @@
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
           { "label": "Moon Phase [LUN]", "value": "12" },
-          { "label": "Heart Rate Variability [HRV]", "value": "13" }
+          { "label": "Heart Rate Variability [HRV]", "value": "13" },
+          { "label": "Plugin Reading 1 [PL1]", "value": "14" },
+          { "label": "Plugin Reading 2 [PL2]", "value": "15" },
+          { "label": "Plugin Reading 3 [PL3]", "value": "16" },
+          { "label": "Plugin Reading 4 [PL4]", "value": "17" },
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
         ]
       },
       {
@@ -179,7 +209,12 @@
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
           { "label": "Moon Phase [LUN]", "value": "12" },
-          { "label": "Heart Rate Variability [HRV]", "value": "13" }
+          { "label": "Heart Rate Variability [HRV]", "value": "13" },
+          { "label": "Plugin Reading 1 [PL1]", "value": "14" },
+          { "label": "Plugin Reading 2 [PL2]", "value": "15" },
+          { "label": "Plugin Reading 3 [PL3]", "value": "16" },
+          { "label": "Plugin Reading 4 [PL4]", "value": "17" },
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
         ]
       },
       {
@@ -201,7 +236,12 @@
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
           { "label": "Moon Phase [LUN]", "value": "12" },
-          { "label": "Heart Rate Variability [HRV]", "value": "13" }
+          { "label": "Heart Rate Variability [HRV]", "value": "13" },
+          { "label": "Plugin Reading 1 [PL1]", "value": "14" },
+          { "label": "Plugin Reading 2 [PL2]", "value": "15" },
+          { "label": "Plugin Reading 3 [PL3]", "value": "16" },
+          { "label": "Plugin Reading 4 [PL4]", "value": "17" },
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
         ]
       },
       {
@@ -223,13 +263,72 @@
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
           { "label": "Moon Phase [LUN]", "value": "12" },
-          { "label": "Heart Rate Variability [HRV]", "value": "13" }
+          { "label": "Heart Rate Variability [HRV]", "value": "13" },
+          { "label": "Plugin Reading 1 [PL1]", "value": "14" },
+          { "label": "Plugin Reading 2 [PL2]", "value": "15" },
+          { "label": "Plugin Reading 3 [PL3]", "value": "16" },
+          { "label": "Plugin Reading 4 [PL4]", "value": "17" },
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
         ]
       },
       {
         "type": "select",
         "messageKey": "ActiveSlots8",
-        "label": "Slot 8 (Bottom Line)",
+        "label": "Slot 8",
+        "defaultValue": "10",
+        "options": [
+          { "label": "Disabled / Blank", "value": "0" },
+          { "label": "Date [SYS]", "value": "1" },
+          { "label": "Battery Power [PWR]", "value": "2" },
+          { "label": "Free Heap Memory [MEM]", "value": "3" },
+          { "label": "Compass Direction [NAV]", "value": "4" },
+          { "label": "Heart Rate [BPM]", "value": "5" },
+          { "label": "Step Counter [STP]", "value": "6" },
+          { "label": "Weather Condition [MET]", "value": "7" },
+          { "label": "Altitude [ALT]", "value": "8" },
+          { "label": "Custom Web API [API]", "value": "9" },
+          { "label": "Second Timezone [TZ2]", "value": "10" },
+          { "label": "Third Timezone [TZ3]", "value": "11" },
+          { "label": "Moon Phase [LUN]", "value": "12" },
+          { "label": "Heart Rate Variability [HRV]", "value": "13" },
+          { "label": "Plugin Reading 1 [PL1]", "value": "14" },
+          { "label": "Plugin Reading 2 [PL2]", "value": "15" },
+          { "label": "Plugin Reading 3 [PL3]", "value": "16" },
+          { "label": "Plugin Reading 4 [PL4]", "value": "17" },
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "ActiveSlots9",
+        "label": "Slot 9",
+        "defaultValue": "12",
+        "options": [
+          { "label": "Disabled / Blank", "value": "0" },
+          { "label": "Date [SYS]", "value": "1" },
+          { "label": "Battery Power [PWR]", "value": "2" },
+          { "label": "Free Heap Memory [MEM]", "value": "3" },
+          { "label": "Compass Direction [NAV]", "value": "4" },
+          { "label": "Heart Rate [BPM]", "value": "5" },
+          { "label": "Step Counter [STP]", "value": "6" },
+          { "label": "Weather Condition [MET]", "value": "7" },
+          { "label": "Altitude [ALT]", "value": "8" },
+          { "label": "Custom Web API [API]", "value": "9" },
+          { "label": "Second Timezone [TZ2]", "value": "10" },
+          { "label": "Third Timezone [TZ3]", "value": "11" },
+          { "label": "Moon Phase [LUN]", "value": "12" },
+          { "label": "Heart Rate Variability [HRV]", "value": "13" },
+          { "label": "Plugin Reading 1 [PL1]", "value": "14" },
+          { "label": "Plugin Reading 2 [PL2]", "value": "15" },
+          { "label": "Plugin Reading 3 [PL3]", "value": "16" },
+          { "label": "Plugin Reading 4 [PL4]", "value": "17" },
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
+        ]
+      },
+      {
+        "type": "select",
+        "messageKey": "ActiveSlots10",
+        "label": "Slot 10 (Bottom Line)",
         "defaultValue": "8",
         "options": [
           { "label": "Disabled / Blank", "value": "0" },
@@ -245,8 +344,17 @@
           { "label": "Second Timezone [TZ2]", "value": "10" },
           { "label": "Third Timezone [TZ3]", "value": "11" },
           { "label": "Moon Phase [LUN]", "value": "12" },
-          { "label": "Heart Rate Variability [HRV]", "value": "13" }
+          { "label": "Heart Rate Variability [HRV]", "value": "13" },
+          { "label": "Plugin Reading 1 [PL1]", "value": "14" },
+          { "label": "Plugin Reading 2 [PL2]", "value": "15" },
+          { "label": "Plugin Reading 3 [PL3]", "value": "16" },
+          { "label": "Plugin Reading 4 [PL4]", "value": "17" },
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
         ]
+      },
+      {
+        "type": "text",
+        "defaultValue": "Plugin Readings show the ones you picked in the Pebble app under Settings > Plugins > Complications, in order."
       }
     ]
   },

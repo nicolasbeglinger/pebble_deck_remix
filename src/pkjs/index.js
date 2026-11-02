@@ -2,8 +2,27 @@
 var Clay = require("pebble-clay");
 // Load our Clay configuration file
 var clayConfig = require("./config.json");
-// Initialize Clay with auto-handling enabled
-var clay = new Clay(clayConfig);
+var customClay = require("./custom-clay");
+// Initialize Clay, with its events handled below so its message to the watch can be cleaned up
+var clay = new Clay(clayConfig, customClay, { autoHandleEvents: false });
+var keys = require("message_keys");
+
+// Console lines in each density.
+var CONSOLE_SLOTS = { high: 10, low: 8 };
+// Plugin readings fill the slots from COMP_PLUGIN1 up, and get the 13 columns after the prefix.
+var FIRST_PLUGIN_COMP = 14;
+var PLUGIN_SLOTS = 5;
+var PLUGIN_TEXT_COLUMNS = 13;
+var PLUGIN_SEND_DELAY_MS = 250;
+var PLUGIN_RETRY_DELAY_MS = 2000;
+var PLUGIN_SEND_RETRIES = 3;
+
+var preferredSubscription = null;
+var readingSubscriptions = [];
+var pluginLines = {}; // What each plugin slot should say
+var sentPluginLines = {}; // What the watch has acknowledged
+var pluginSendBusy = false;
+var pluginSendFailures = 0;
 
 // Default regex to extract data from the API response.
 // First capture group is sent to the watch (max 12 chars).
@@ -225,15 +244,250 @@ function updateData() {
   );
 }
 
+// The plugin slots the layout uses, so nothing unused gets read or asks for permission.
+function activePluginSlots() {
+  var slots = [];
+  try {
+    var claySettings = JSON.parse(localStorage.getItem("clay-settings")) || {};
+    var count = CONSOLE_SLOTS[claySettings.Density] || CONSOLE_SLOTS.high;
+    for (var i = 1; i <= count; i++) {
+      var slot = parseInt(claySettings["ActiveSlots" + i], 10) - FIRST_PLUGIN_COMP;
+      if (slot >= 0 && slot < PLUGIN_SLOTS && slots.indexOf(slot) === -1) {
+        slots.push(slot);
+      }
+    }
+  } catch (e) {
+    console.error(e);
+  }
+  return slots;
+}
+
+// ASCII only: the watch's fixed buffers count one byte per column, and the face already
+// writes "12C" rather than "12°C". Normalising first keeps the E of an É.
+function consoleText(text) {
+  return String(text)
+    .normalize("NFD")
+    .toUpperCase()
+    .replace(/[^\x20-\x7E]/g, "");
+}
+
+function twoDigits(number) {
+  return (number < 10 ? "0" : "") + number;
+}
+
+// A reading offers whichever shapes its plugin can make, so take the richest that fits.
+function pluginReadingText(reading) {
+  if (!reading) return "";
+  var longText = reading.longText ? consoleText(reading.longText.text) : "";
+  var shortText = reading.shortText ? consoleText(reading.shortText.text) : "";
+  var text = "";
+
+  if (longText && (longText.length <= PLUGIN_TEXT_COLUMNS || !shortText)) {
+    text = longText;
+  } else if (shortText) {
+    text = shortText;
+  } else if (reading.numericValue) {
+    var value = Math.round(reading.numericValue.value * 10) / 10;
+    text = consoleText(value + (reading.numericValue.unit || ""));
+  } else if (reading.boolean) {
+    text = reading.boolean.value ? "ON" : "OFF";
+  } else if (reading.timestamp) {
+    var at = new Date(reading.timestamp.value * 1000);
+    text = twoDigits(at.getHours()) + ":" + twoDigits(at.getMinutes());
+  }
+  return text.substring(0, PLUGIN_TEXT_COLUMNS);
+}
+
+function pluginTag(property) {
+  var tag = property.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  return (tag + "   ").substring(0, 3);
+}
+
+function pluginLine(tag, text) {
+  return "[" + tag + "] >> " + text;
+}
+
+function setPluginLine(slot, line) {
+  pluginLines[slot] = line;
+  if (line !== sentPluginLines[slot]) schedulePluginSend(PLUGIN_SEND_DELAY_MS);
+}
+
+// One send for everything that changed: readings tend to arrive in a bunch and the watch can
+// only take one message at a time, and an unchanged refresh shouldn't wake its radio at all.
+function schedulePluginSend(delayMs) {
+  if (pluginSendBusy) return;
+  pluginSendBusy = true;
+  setTimeout(sendPluginLines, delayMs);
+}
+
+function sendPluginLines() {
+  var dictionary = {};
+  var sending = {};
+  Object.keys(pluginLines).forEach(function (slot) {
+    if (pluginLines[slot] !== sentPluginLines[slot]) {
+      sending[slot] = pluginLines[slot];
+      dictionary[keys.Plugin + Number(slot)] = pluginLines[slot];
+    }
+  });
+
+  if (!Object.keys(sending).length) {
+    pluginSendBusy = false;
+    return;
+  }
+
+  Pebble.sendAppMessage(
+    dictionary,
+    function () {
+      Object.keys(sending).forEach(function (slot) {
+        sentPluginLines[slot] = sending[slot];
+      });
+      pluginSendFailures = 0;
+      pluginSendBusy = false;
+      schedulePluginSend(PLUGIN_SEND_DELAY_MS); // Anything that changed mid-flight
+    },
+    function () {
+      console.log("Error sending plugin lines to Pebble!");
+      pluginSendBusy = false;
+      // Past the limit, the slot's next change or refresh tries again.
+      if (++pluginSendFailures <= PLUGIN_SEND_RETRIES) {
+        schedulePluginSend(PLUGIN_RETRY_DELAY_MS);
+      }
+    }
+  );
+}
+
+function subscribePluginReading(slot, reading) {
+  var tag = pluginTag(reading.property);
+
+  readingSubscriptions.push(
+    Pebble.subscribeToSource({
+      category: reading.category,
+      item: reading.item,
+      properties: [reading.property],
+      onData: function (envelope) {
+        var instance = envelope.instances[reading.index];
+        var text = pluginReadingText(
+          instance && instance.properties[reading.property]
+        );
+        setPluginLine(slot, pluginLine(tag, text || "NO DATA"));
+      },
+      onError: function (err) {
+        console.log(reading.category + "/" + reading.item + ": " + err.code);
+        // A subscription survives errors, so like the weather, keep the last good reading.
+        if (err.code === "PERMISSION_DENIED") {
+          setPluginLine(slot, pluginLine(tag, "NEEDS PERM"));
+        } else if (!pluginLines[slot]) {
+          setPluginLine(slot, pluginLine(tag, "NO DATA"));
+        }
+      },
+    })
+  );
+}
+
+function stopPluginReadings() {
+  readingSubscriptions.forEach(function (subscription) {
+    subscription.unsubscribe();
+  });
+  readingSubscriptions = [];
+}
+
+function shortTextOf(properties, name) {
+  return properties[name] && properties[name].shortText
+    ? properties[name].shortText.text
+    : "";
+}
+
+function onPreferredReadings(envelope) {
+  var readings = envelope.instances.map(function (instance) {
+    var p = instance.properties;
+    return {
+      category: shortTextOf(p, "category"),
+      item: shortTextOf(p, "item"),
+      property: shortTextOf(p, "property"),
+      index: p.index && p.index.numericValue ? p.index.numericValue.value : 0,
+    };
+  });
+
+  stopPluginReadings();
+  activePluginSlots().forEach(function (slot) {
+    if (readings[slot]) {
+      subscribePluginReading(slot, readings[slot]);
+    } else {
+      setPluginLine(slot, pluginLine("PL" + (slot + 1), "NOT SET"));
+    }
+  });
+}
+
+function showNoPlugins(slots) {
+  slots.forEach(function (slot) {
+    setPluginLine(slot, pluginLine("PL" + (slot + 1), "NO PLUGINS"));
+  });
+}
+
+// Plugins are a preview the phone app ships with switched off. Each slot shows one of the
+// readings the user picked under Settings > Plugins > Complications.
+function startPlugins() {
+  if (preferredSubscription) preferredSubscription.unsubscribe();
+  preferredSubscription = null;
+  stopPluginReadings();
+
+  var slots = activePluginSlots();
+  if (!slots.length) return;
+
+  if (!Pebble.subscribeToSource) {
+    showNoPlugins(slots);
+    return;
+  }
+
+  preferredSubscription = Pebble.subscribeToSource({
+    category: "preferences",
+    item: "complications",
+    onData: onPreferredReadings,
+    onError: function (err) {
+      console.log("preferences/complications: " + err.code);
+      // Anything but "unavailable" could be a hiccup, and the readings on screen are still good.
+      showNoPlugins(
+        slots.filter(function (slot) {
+          return err.code === "PLUGIN_UNAVAILABLE" || !pluginLines[slot];
+        })
+      );
+    },
+  });
+}
+
+// The phone-only settings (the custom API and weather units) have no message key, so Clay's
+// dictionary collapses them into a NaN key, and a host that checks keys rejects the whole send.
+function sendSettingsToWatch(response) {
+  var settings = clay.getSettings(response);
+  delete settings.NaN;
+
+  Pebble.sendAppMessage(
+    settings,
+    function () {
+      console.log("Settings sent to Pebble successfully!");
+    },
+    function () {
+      console.log("Error sending settings to Pebble!");
+    }
+  );
+}
+
+Pebble.addEventListener("showConfiguration", function () {
+  Pebble.openURL(clay.generateUrl());
+});
+
 Pebble.addEventListener("ready", function () {
   console.log("Pebble ready, initializing app updates.");
   updateData();
+  startPlugins();
 });
 
 Pebble.addEventListener("webviewclosed", function (e) {
   if (e && e.response) {
     console.log("Settings closed. Fetching fresh data with new configs...");
+    sendSettingsToWatch(e.response);
     updateData();
+    startPlugins();
   }
 });
 

@@ -1,10 +1,22 @@
 #include <pebble.h>
 
 #define SETTINGS_KEY 1
-#define MAX_SLOTS 8
+#define MAX_SLOTS 10
 
-// Console lines: the first one starts under the HUD divider and they stack 16 px apart.
-#define SLOT_Y 76
+// The two densities. High moves the clock up to make room for ten console lines: the font has
+// 17 px of headroom above its digits, so the box starts just off screen and the digits start at
+// y 16, clear of the top tab and NO LINK. Low is the original eight-line layout.
+typedef struct {
+  int16_t time_y;  // Top of the clock's text box
+  int16_t slot_y;  // Top of the first console line
+  uint8_t slots;   // Console lines shown
+} DeckLayout;
+static const DeckLayout LAYOUT_HIGH = { .time_y = -1, .slot_y = 60, .slots = 10 };
+static const DeckLayout LAYOUT_LOW = { .time_y = 12, .slot_y = 76, .slots = 8 };
+#define TIME_H 60
+// The AM/PM label sits on the clock's baseline.
+#define AMPM_OFFSET 42
+// Console lines stack 16 px apart, with the HUD divider just above the first.
 #define SLOT_H 16
 // In 12h mode the time is centred in the space left of the AM/PM label rather than the
 // full width, so the widest hours (10:08) can't run into it.
@@ -12,6 +24,10 @@
 // Both ASCII bars use 5 segments: that's what leaves room for a 5-digit step count on a
 // 22-column line once the "[STP] >> " prefix has taken its 9.
 #define BAR_SEGMENTS 5
+
+// Plugin readings arrive as finished console lines: 22 ASCII columns plus the terminator.
+#define PLUGIN_SLOTS 5
+#define PLUGIN_LINE_LEN 23
 
 // HRV comes from the sensor's peak-to-peak (RR) intervals. The Goodix algorithm reports
 // bursts of up to 4 consecutive intervals, each as its own HealthEventHRVUpdate, so RMSSD
@@ -51,7 +67,12 @@ typedef enum {
   COMP_TZ2,
   COMP_TZ3,
   COMP_MOON_PHASE,
-  COMP_HRV
+  COMP_HRV,
+  COMP_PLUGIN1,
+  COMP_PLUGIN2,
+  COMP_PLUGIN3,
+  COMP_PLUGIN4,
+  COMP_PLUGIN5
 } ComplicationType;
 
 typedef struct ClaySettings {
@@ -60,7 +81,19 @@ typedef struct ClaySettings {
   ComplicationType ActiveSlots[MAX_SLOTS];
   int8_t Tz2Offset;
   int8_t Tz3Offset;
+  bool HighDensity;
 } ClaySettings;
+
+// Settings as saved before slots 9 and 10 and the density setting: eight slots with the
+// timezone offsets straight after them. Read once when an older install updates, so its layout
+// and timezones survive.
+typedef struct ClaySettingsV1 {
+  GColor BackgroundColor;
+  GColor TextColor;
+  ComplicationType ActiveSlots[8];
+  int8_t Tz2Offset;
+  int8_t Tz3Offset;
+} ClaySettingsV1;
 
 static ClaySettings settings;
 
@@ -92,6 +125,7 @@ static int s_alt_cache = 0;
 static time_t s_weather_received_at = 0;  // 0 until the first successful fetch
 static char s_moon_cache[16] = "";
 static int s_moon_day = -1;
+static char s_plugin_lines[PLUGIN_SLOTS][PLUGIN_LINE_LEN];
 
 // HRV state. UNSUPPORTED covers both "no HRV hardware" (only the Pebble Time 2 / obelix
 // board enables it) and "user has heart rate turned off in settings".
@@ -113,6 +147,7 @@ static time_t s_hrv_result_at = 0;    // When the displayed number was measured
 
 static AppTimer *s_compass_timer = NULL;
 static bool s_compass_subscribed = false;
+static bool s_backlight_subscribed = false;
 static bool s_health_subscribed = false;
 
 static Layer *s_window_layer;
@@ -124,6 +159,7 @@ static void prv_default_settings() {
   settings.TextColor = GColorCyan;
   settings.Tz2Offset = 0;
   settings.Tz3Offset = 0;
+  settings.HighDensity = true;
 
   // Default stack order of your original face
   settings.ActiveSlots[0] = COMP_DATE;
@@ -134,6 +170,8 @@ static void prv_default_settings() {
   settings.ActiveSlots[5] = COMP_STEPS;
   settings.ActiveSlots[6] = COMP_WEATHER;
   settings.ActiveSlots[7] = COMP_TZ2;
+  settings.ActiveSlots[8] = COMP_MOON_PHASE;
+  settings.ActiveSlots[9] = COMP_ALT;
 }
 
 static void prv_save_settings() {
@@ -150,7 +188,18 @@ static void prv_sanitize_colors() {
 
 static void prv_load_settings() {
   prv_default_settings();
-  persist_read_data(SETTINGS_KEY, &settings, sizeof(settings));
+  if (persist_get_size(SETTINGS_KEY) == (int)sizeof(ClaySettingsV1)) {
+    ClaySettingsV1 old;
+    persist_read_data(SETTINGS_KEY, &old, sizeof(old));
+    settings.BackgroundColor = old.BackgroundColor;
+    settings.TextColor = old.TextColor;
+    memcpy(settings.ActiveSlots, old.ActiveSlots, sizeof(old.ActiveSlots));
+    settings.Tz2Offset = old.Tz2Offset;
+    settings.Tz3Offset = old.Tz3Offset;
+    prv_save_settings();
+  } else {
+    persist_read_data(SETTINGS_KEY, &settings, sizeof(settings));
+  }
   prv_sanitize_colors();
 }
 
@@ -166,9 +215,14 @@ static void make_ascii_bar(int percent, char *buffer, int segments, char fill_ch
   buffer[segments+2] = '\0';
 }
 
+static const DeckLayout *prv_layout() {
+  return settings.HighDensity ? &LAYOUT_HIGH : &LAYOUT_LOW;
+}
+
 // --- HELPER: IS A COMPLICATION ON SCREEN? ---
+// Slots past the end of the low density layout don't count, so nothing hidden keeps a sensor on.
 static bool prv_slot_active(ComplicationType comp) {
-  for (int i = 0; i < MAX_SLOTS; i++) {
+  for (int i = 0; i < prv_layout()->slots; i++) {
     if (settings.ActiveSlots[i] == comp) return true;
   }
   return false;
@@ -212,10 +266,11 @@ static const char *moon_phase_name(double age) {
 }
 
 static void health_handler(HealthEventType event, void *context);
+static void prv_apply_layout();
 
 // --- CORE RENDER ENGINE ---
 static void render_slots() {
-  for (int i = 0; i < MAX_SLOTS; i++) {
+  for (int i = 0; i < prv_layout()->slots; i++) {
     ComplicationType current_comp = settings.ActiveSlots[i];
     char scratch[32];
     char *buffer = scratch;
@@ -352,6 +407,19 @@ static void render_slots() {
         snprintf(buffer, 32, "[LUN] >> %s", s_moon_cache);
         break;
       }
+      case COMP_PLUGIN1:
+      case COMP_PLUGIN2:
+      case COMP_PLUGIN3:
+      case COMP_PLUGIN4:
+      case COMP_PLUGIN5: {
+        int plugin = current_comp - COMP_PLUGIN1;
+        if (s_plugin_lines[plugin][0] != '\0') {
+          snprintf(buffer, 32, "%s", s_plugin_lines[plugin]);
+        } else {
+          snprintf(buffer, 32, "[PL%d] >> NO DATA", plugin + 1);
+        }
+        break;
+      }
       case COMP_NONE:
       default:
         snprintf(buffer, 32, "   ");
@@ -379,6 +447,15 @@ static void prv_update_display() {
   layer_mark_dirty(s_hud_layer);
 }
 
+// In 12h mode the time is centred left of the AM/PM label.
+static void prv_layout_clock() {
+  int y = prv_layout()->time_y;
+  int w = s_full_bounds.size.w - (clock_is_24h_style() ? 0 : AMPM_INSET);
+  layer_set_frame(text_layer_get_layer(s_time_layer), GRect(0, y, w, TIME_H));
+  layer_set_frame(text_layer_get_layer(s_ampm_layer),
+                  GRect(s_full_bounds.size.w - 39, y + AMPM_OFFSET, 24, 16));
+}
+
 // --- DATA CACHE UPDATERS ---
 static void update_time_data() {
   time_t temp = time(NULL);
@@ -393,11 +470,10 @@ static void update_time_data() {
   }
   text_layer_set_text(s_time_layer, s_time_buffer);
 
-  // The layer is created at full width, which is right for 24h.
+  // Window load lays the clock out for the format at the time; this follows later switches.
   static bool s_laid_out_24h = true;
   if (is_24h != s_laid_out_24h) {
-    int w = s_full_bounds.size.w - (is_24h ? 0 : AMPM_INSET);
-    layer_set_frame(text_layer_get_layer(s_time_layer), GRect(0, 12, w, 60));
+    prv_layout_clock();
     s_laid_out_24h = is_24h;
   }
 
@@ -458,6 +534,25 @@ static void backlight_callback(bool backlight_on) {
       s_compass_subscribed = true;
     }
     s_compass_timer = app_timer_register(5000, compass_timer_callback, NULL);
+  }
+}
+
+// Subscribes to whatever the layout needs. Runs after every settings change as well as at
+// startup, so a complication added from the config page works without restarting the face.
+static void prv_update_services() {
+  bool needs_health = prv_slot_active(COMP_STEPS) || prv_slot_active(COMP_HEART_RATE)
+                      || prv_slot_active(COMP_HRV);
+
+  if (needs_health && !s_health_subscribed) {
+    s_health_subscribed = health_service_events_subscribe(health_handler, NULL);
+  }
+
+  if (prv_slot_active(COMP_COMPASS)) {
+    if (!s_backlight_subscribed) {
+      backlight_service_subscribe(backlight_callback);
+      s_backlight_subscribed = true;
+    }
+    backlight_callback(true);  // Take a heading now rather than at the next wrist flick
   }
 }
 
@@ -588,9 +683,6 @@ static void prv_hrv_on_layout_change() {
     return;
   }
 
-  if (!s_health_subscribed) {
-    s_health_subscribed = health_service_events_subscribe(health_handler, NULL);
-  }
   if (!s_hrv_measuring) prv_hrv_start_window();
 #endif
 }
@@ -681,7 +773,8 @@ static void hud_update_proc(Layer *layer, GContext *ctx) {
                        GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
   }
 
-  graphics_draw_line(ctx, GPoint(8, 74), GPoint(bounds.size.w - 8, 74));
+  int divider_y = prv_layout()->slot_y - 2;
+  graphics_draw_line(ctx, GPoint(8, divider_y), GPoint(bounds.size.w - 8, divider_y));
 
   int len = 8;
   graphics_draw_line(ctx, GPoint(2, 2), GPoint(2 + len, 2));
@@ -724,6 +817,13 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     s_alt_cache = (int)alt_tuple->value->int32;
   }
 
+  for (int i = 0; i < PLUGIN_SLOTS; i++) {
+    Tuple *plugin_tuple = dict_find(iterator, MESSAGE_KEY_Plugin + i);
+    if (plugin_tuple) {
+      snprintf(s_plugin_lines[i], sizeof(s_plugin_lines[i]), "%s", plugin_tuple->value->cstring);
+    }
+  }
+
   // Handle slot configuration from Clay
   Tuple *slot_tuples[MAX_SLOTS] = {
     dict_find(iterator, MESSAGE_KEY_ActiveSlots1),
@@ -733,7 +833,9 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     dict_find(iterator, MESSAGE_KEY_ActiveSlots5),
     dict_find(iterator, MESSAGE_KEY_ActiveSlots6),
     dict_find(iterator, MESSAGE_KEY_ActiveSlots7),
-    dict_find(iterator, MESSAGE_KEY_ActiveSlots8)
+    dict_find(iterator, MESSAGE_KEY_ActiveSlots8),
+    dict_find(iterator, MESSAGE_KEY_ActiveSlots9),
+    dict_find(iterator, MESSAGE_KEY_ActiveSlots10)
   };
   for (int i = 0; i < MAX_SLOTS; i++) {
     if (slot_tuples[i]) {
@@ -766,10 +868,20 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     settings_changed = true;
   }
 
+  Tuple *density_tuple = dict_find(iterator, MESSAGE_KEY_Density);
+  if (density_tuple) {
+    settings.HighDensity = strcmp(density_tuple->value->cstring, "low") != 0;
+    settings_changed = true;
+  }
+
   if (settings_changed) {
     prv_sanitize_colors();
     prv_save_settings();
+    prv_apply_layout();
+    prv_update_services();
     prv_hrv_on_layout_change();
+    update_steps();
+    update_hr();
     prv_update_display();
   }
 
@@ -777,14 +889,24 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
 }
 
 // Timeline Quick View. The lines keep their places and spacing; the ones that would sit
-// under the peek are hidden. Five lines fit above it at full spacing, so there's no need to
-// squeeze the stack (which used to stick after the peek had gone).
+// under the peek are hidden. Six lines fit above it at full spacing in high density and five
+// in low, so there's no need to squeeze the stack (which used to stick after the peek had gone).
 static void prv_layout_slots(GRect visible) {
+  const DeckLayout *layout = prv_layout();
   int visible_bottom = visible.origin.y + visible.size.h;
   for(int i = 0; i < MAX_SLOTS; i++) {
-    int slot_bottom = SLOT_Y + (i + 1) * SLOT_H;
-    layer_set_hidden(text_layer_get_layer(s_slot_layers[i]), slot_bottom > visible_bottom);
+    Layer *slot = text_layer_get_layer(s_slot_layers[i]);
+    int slot_y = layout->slot_y + i * SLOT_H;
+    layer_set_frame(slot, GRect(10, slot_y, s_full_bounds.size.w - 20, SLOT_H));
+    layer_set_hidden(slot, i >= layout->slots || slot_y + SLOT_H > visible_bottom);
   }
+}
+
+// Places everything the density moves. Runs at window load and after every settings change.
+static void prv_apply_layout() {
+  prv_layout_clock();
+  prv_layout_slots(layer_get_unobstructed_bounds(s_window_layer));
+  layer_mark_dirty(s_hud_layer);
 }
 
 static void prv_unobstructed_will_change(GRect final_unobstructed_screen_area, void *context) {
@@ -813,13 +935,13 @@ static void main_window_load(Window *window) {
   layer_set_update_proc(s_hud_layer, hud_update_proc);
   layer_add_child(s_window_layer, s_hud_layer);
 
-  s_time_layer = text_layer_create(GRect(0, 12, bounds.size.w, 60));
+  s_time_layer = text_layer_create(GRect(0, 0, bounds.size.w, TIME_H));
   text_layer_set_background_color(s_time_layer, GColorClear);
   text_layer_set_font(s_time_layer, s_time_font);
   text_layer_set_text_alignment(s_time_layer, GTextAlignmentCenter);
   layer_add_child(s_window_layer, text_layer_get_layer(s_time_layer));
 
-  s_ampm_layer = text_layer_create(GRect(bounds.size.w - 39, 54, 24, 16));
+  s_ampm_layer = text_layer_create(GRect(bounds.size.w - 39, AMPM_OFFSET, 24, 16));
   text_layer_set_background_color(s_ampm_layer, GColorClear);
   text_layer_set_font(s_ampm_layer, s_sys_font);
   text_layer_set_text_alignment(s_ampm_layer, GTextAlignmentRight);
@@ -827,7 +949,7 @@ static void main_window_load(Window *window) {
 
   // Loop generation for all console lines
   for(int i = 0; i < MAX_SLOTS; i++) {
-    s_slot_layers[i] = text_layer_create(GRect(10, SLOT_Y + (i * SLOT_H), bounds.size.w - 20, SLOT_H));
+    s_slot_layers[i] = text_layer_create(GRect(10, i * SLOT_H, bounds.size.w - 20, SLOT_H));
     text_layer_set_background_color(s_slot_layers[i], GColorClear);
     text_layer_set_font(s_slot_layers[i], s_sys_font);
     text_layer_set_text_alignment(s_slot_layers[i], GTextAlignmentLeft);
@@ -841,7 +963,7 @@ static void main_window_load(Window *window) {
     .did_change = prv_unobstructed_did_change
   };
   unobstructed_area_service_subscribe(handlers, NULL);
-  prv_layout_slots(layer_get_unobstructed_bounds(s_window_layer));
+  prv_apply_layout();
 
   prv_update_display();
 }
@@ -868,25 +990,7 @@ static void init() {
 
   tick_timer_service_subscribe(MINUTE_UNIT, tick_handler);
 
-  // Conditionally optimize background service subscriptions based on layout
-  bool needs_health = false;
-  bool needs_compass = false;
-  for(int i=0; i<MAX_SLOTS; i++) {
-    if(settings.ActiveSlots[i] == COMP_STEPS || settings.ActiveSlots[i] == COMP_HEART_RATE
-       || settings.ActiveSlots[i] == COMP_HRV) needs_health = true;
-    if(settings.ActiveSlots[i] == COMP_COMPASS) needs_compass = true;
-  }
-
-  if(needs_health) {
-    s_health_subscribed = health_service_events_subscribe(health_handler, NULL);
-  }
-  if(needs_compass) {
-    compass_service_subscribe(compass_handler);
-    compass_service_set_heading_filter(2 * (TRIG_MAX_ANGLE / 360));
-    s_compass_subscribed = true;
-    s_compass_timer = app_timer_register(5000, compass_timer_callback, NULL);
-    backlight_service_subscribe(backlight_callback);
-  }
+  prv_update_services();
 
   battery_state_service_subscribe(battery_callback);
   s_phone_connected = connection_service_peek_pebble_app_connection();

@@ -15,6 +15,7 @@
     ],
     "displayName": "pebble_deck",
     "enableMultiJS": true,
+    "manifestVersion": 2,
     "messageKeys": [
       "Conditions",
       "RequestWeather",
@@ -30,8 +31,12 @@
       "ActiveSlots6",
       "ActiveSlots7",
       "ActiveSlots8",
+      "ActiveSlots9",
+      "ActiveSlots10",
       "Tz2Offset",
-      "Tz3Offset"
+      "Tz3Offset",
+      "Density",
+      "Plugin[5]"
     ],
     "projectType": "native",
     "resources": {
@@ -53,6 +58,18 @@
     "sdkVersion": "3",
     "targetPlatforms": [
       "emery"
+    ],
+    "usesPermissions": [
+      "Location",
+      "Health",
+      {
+        "name": "Internet",
+        "parameters": {
+          "domains": [
+            "api.open-meteo.com"
+          ]
+        }
+      }
     ],
     "uuid": "037efe7b-3eaf-442b-8294-0c6b99c008da",
     "watchapp": {

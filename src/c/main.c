@@ -364,7 +364,7 @@ static void render_slots() {
         snprintf(buffer, 32, "[API] >> %s", s_api_cache);
         break;
       case COMP_ALT:
-        snprintf(buffer, 32, "[ALT] >> %dft", s_alt_cache);
+        snprintf(buffer, 32, "[ALT] >> %d m", s_alt_cache);
         break;
       case COMP_TZ2: {
         time_t utc_now = time(NULL);

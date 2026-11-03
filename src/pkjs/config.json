@@ -106,7 +106,8 @@
           { "label": "Plugin Reading 2 [PL2]", "value": "15" },
           { "label": "Plugin Reading 3 [PL3]", "value": "16" },
           { "label": "Plugin Reading 4 [PL4]", "value": "17" },
-          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" },
+          { "label": "Min/Max Temp [TMP]", "value": "19" }
         ]
       },
       {
@@ -133,7 +134,8 @@
           { "label": "Plugin Reading 2 [PL2]", "value": "15" },
           { "label": "Plugin Reading 3 [PL3]", "value": "16" },
           { "label": "Plugin Reading 4 [PL4]", "value": "17" },
-          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" },
+          { "label": "Min/Max Temp [TMP]", "value": "19" }
         ]
       },
       {
@@ -160,7 +162,8 @@
           { "label": "Plugin Reading 2 [PL2]", "value": "15" },
           { "label": "Plugin Reading 3 [PL3]", "value": "16" },
           { "label": "Plugin Reading 4 [PL4]", "value": "17" },
-          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" },
+          { "label": "Min/Max Temp [TMP]", "value": "19" }
         ]
       },
       {
@@ -187,7 +190,8 @@
           { "label": "Plugin Reading 2 [PL2]", "value": "15" },
           { "label": "Plugin Reading 3 [PL3]", "value": "16" },
           { "label": "Plugin Reading 4 [PL4]", "value": "17" },
-          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" },
+          { "label": "Min/Max Temp [TMP]", "value": "19" }
         ]
       },
       {
@@ -214,7 +218,8 @@
           { "label": "Plugin Reading 2 [PL2]", "value": "15" },
           { "label": "Plugin Reading 3 [PL3]", "value": "16" },
           { "label": "Plugin Reading 4 [PL4]", "value": "17" },
-          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" },
+          { "label": "Min/Max Temp [TMP]", "value": "19" }
         ]
       },
       {
@@ -241,7 +246,8 @@
           { "label": "Plugin Reading 2 [PL2]", "value": "15" },
           { "label": "Plugin Reading 3 [PL3]", "value": "16" },
           { "label": "Plugin Reading 4 [PL4]", "value": "17" },
-          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" },
+          { "label": "Min/Max Temp [TMP]", "value": "19" }
         ]
       },
       {
@@ -268,7 +274,8 @@
           { "label": "Plugin Reading 2 [PL2]", "value": "15" },
           { "label": "Plugin Reading 3 [PL3]", "value": "16" },
           { "label": "Plugin Reading 4 [PL4]", "value": "17" },
-          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" },
+          { "label": "Min/Max Temp [TMP]", "value": "19" }
         ]
       },
       {
@@ -295,7 +302,8 @@
           { "label": "Plugin Reading 2 [PL2]", "value": "15" },
           { "label": "Plugin Reading 3 [PL3]", "value": "16" },
           { "label": "Plugin Reading 4 [PL4]", "value": "17" },
-          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" },
+          { "label": "Min/Max Temp [TMP]", "value": "19" }
         ]
       },
       {
@@ -322,7 +330,8 @@
           { "label": "Plugin Reading 2 [PL2]", "value": "15" },
           { "label": "Plugin Reading 3 [PL3]", "value": "16" },
           { "label": "Plugin Reading 4 [PL4]", "value": "17" },
-          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" },
+          { "label": "Min/Max Temp [TMP]", "value": "19" }
         ]
       },
       {
@@ -349,7 +358,8 @@
           { "label": "Plugin Reading 2 [PL2]", "value": "15" },
           { "label": "Plugin Reading 3 [PL3]", "value": "16" },
           { "label": "Plugin Reading 4 [PL4]", "value": "17" },
-          { "label": "Plugin Reading 5 [PL5]", "value": "18" }
+          { "label": "Plugin Reading 5 [PL5]", "value": "18" },
+          { "label": "Min/Max Temp [TMP]", "value": "19" }
         ]
       },
       {

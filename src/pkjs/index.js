@@ -138,12 +138,12 @@ function parseCustomApiResponse(body, regex) {
 }
 
 // Fetch custom API endpoint and then send everything to the watch
-function fetchCustomApi(conditions, altitude, apiConfig) {
+function fetchCustomApi(current_conditions, min_max_conditions, altitude, apiConfig) {
   if (
     !apiConfig.endpointUrl ||
     apiConfig.endpointUrl.indexOf("https://") !== 0
   ) {
-    sendToWatch(conditions, altitude, "API ERR");
+    sendToWatch(current_conditions, min_max_conditions, altitude, "API ERR");
     return;
   }
 
@@ -167,15 +167,16 @@ function fetchCustomApi(conditions, altitude, apiConfig) {
         customApiString = "API OFFLINE";
       }
 
-      sendToWatch(conditions, altitude, customApiString);
+      sendToWatch(current_conditions, min_max_conditions, altitude, customApiString);
     }
   );
 }
 
 // Send telemetry data to the Pebble watch
-function sendToWatch(conditions, altitude, customApiString) {
+function sendToWatch(current_conditions, min_max_conditions, altitude, customApiString) {
   var dictionary = {};
-  dictionary["Conditions"] = conditions;
+  dictionary["CurrentConditions"] = current_conditions;
+  dictionary["MinMaxConditions"] = min_max_conditions;
   dictionary["Alt"] = altitude;
   dictionary["CustomApi"] = customApiString;
 
@@ -196,7 +197,7 @@ function updateData() {
 
   navigator.geolocation.getCurrentPosition(
     function (pos) {
-      var altitude = (pos.coords.altitude || 0) * 3.281;
+      var altitude = (pos.coords.altitude || 0);
 
       var url =
         "https://api.open-meteo.com/v1/forecast?" +
@@ -204,38 +205,50 @@ function updateData() {
         pos.coords.latitude +
         "&longitude=" +
         pos.coords.longitude +
-        "&current=temperature_2m,weather_code";
+        "&current=temperature_2m,weather_code" +
+        "&daily=temperature_2m_max,temperature_2m_min";
 
       xhrRequest(url, "GET", null, function (status, responseText) {
         // A leading "!" tells the watch this is a failure, not a reading: it keeps
         // showing the last good one (with its age) instead of replacing it.
-        var conditions = "!OFFLINE";
+        var current_conditions = "!OFFLINE";
+        var min_max_conditions = "!OFFLINE";
 
         if (status === 200 && responseText) {
           try {
             var json = JSON.parse(responseText);
+            
+            // console.log(JSON.stringify(json, null, 2));
 
             var temp_value = Math.round(json.current.temperature_2m);
+            var temp_max = Math.round(json.daily.temperature_2m_max[0]);
+            var temp_min = Math.round(json.daily.temperature_2m_min[0]);
 
             if (config.useFahrenheit) {
               temp_value = Math.round((temp_value * 9) / 5 + 32);
             }
 
-            conditions =
+            current_conditions =
               temp_value +
               (config.useFahrenheit ? "F " : "C ") +
               weatherCodeToCondition(json.current.weather_code, config.useMetar);
+            
+            min_max_conditions =
+              temp_min +
+              "-" +
+              temp_max +
+              (config.useFahrenheit ? " F " : " C");
           } catch (e) {
             console.error(e);
           }
         }
 
-        fetchCustomApi(conditions, altitude, config);
+        fetchCustomApi(current_conditions, min_max_conditions, altitude, config);
       });
     },
     function (err) {
       console.log("Error requesting location!");
-      fetchCustomApi("!NO GPS", 0, config);
+      fetchCustomApi("!NO GPS", "!NO GPS", 0, config);
     },
     {
       timeout: 15000,

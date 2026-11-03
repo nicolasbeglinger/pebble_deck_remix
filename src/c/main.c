@@ -72,7 +72,8 @@ typedef enum {
   COMP_PLUGIN2,
   COMP_PLUGIN3,
   COMP_PLUGIN4,
-  COMP_PLUGIN5
+  COMP_PLUGIN5,
+  COMP_MIN_MAX_TEMP
 } ComplicationType;
 
 typedef struct ClaySettings {
@@ -126,6 +127,7 @@ static time_t s_weather_received_at = 0;  // 0 until the first successful fetch
 static char s_moon_cache[16] = "";
 static int s_moon_day = -1;
 static char s_plugin_lines[PLUGIN_SLOTS][PLUGIN_LINE_LEN];
+static char s_min_max_temp_cache[16] = "---";
 
 // HRV state. UNSUPPORTED covers both "no HRV hardware" (only the Pebble Time 2 / obelix
 // board enables it) and "user has heart rate turned off in settings".
@@ -169,7 +171,7 @@ static void prv_default_settings() {
   settings.ActiveSlots[4] = COMP_HEART_RATE;
   settings.ActiveSlots[5] = COMP_STEPS;
   settings.ActiveSlots[6] = COMP_WEATHER;
-  settings.ActiveSlots[7] = COMP_TZ2;
+  settings.ActiveSlots[7] = COMP_MIN_MAX_TEMP;
   settings.ActiveSlots[8] = COMP_MOON_PHASE;
   settings.ActiveSlots[9] = COMP_ALT;
 }
@@ -352,6 +354,10 @@ static void render_slots() {
         } else {
           snprintf(buffer, 32, "[MET] >> %s", s_weather_cache);
         }
+        break;
+      }
+      case COMP_MIN_MAX_TEMP: {
+        snprintf(buffer, 32, "[TMP] >> %s", s_min_max_temp_cache);
         break;
       }
       case COMP_CUSTOM_API:
@@ -789,14 +795,15 @@ static void hud_update_proc(Layer *layer, GContext *ctx) {
 
 // --- APPMESSAGE HANDLERS ---
 static void inbox_received_callback(DictionaryIterator *iterator, void *context) {
-  Tuple *conditions_tuple = dict_find(iterator, MESSAGE_KEY_Conditions);
+  Tuple *current_conditions_tuple = dict_find(iterator, MESSAGE_KEY_CurrentConditions);
+  Tuple *min_max_conditions_tuple = dict_find(iterator, MESSAGE_KEY_MinMaxConditions);
   Tuple *alt_tuple = dict_find(iterator, MESSAGE_KEY_Alt);
   Tuple *custom_api_tuple = dict_find(iterator, MESSAGE_KEY_CustomApi);
 
   bool settings_changed = false;
 
-  if (conditions_tuple) {
-    const char *conditions = conditions_tuple->value->cstring;
+  if (current_conditions_tuple) {
+    const char *conditions = current_conditions_tuple->value->cstring;
     if (conditions[0] == '!') {
       // A failed fetch ("!OFFLINE", "!NO GPS"). Keep the last real reading on screen and let
       // the age marker say it's old; only show the error itself if there's nothing better.
@@ -807,6 +814,10 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
       snprintf(s_weather_cache, sizeof(s_weather_cache), "%s", conditions);
       s_weather_received_at = time(NULL);
     }
+  }
+
+  if (min_max_conditions_tuple) {
+    snprintf(s_min_max_temp_cache, sizeof(s_min_max_temp_cache), "%s", min_max_conditions_tuple->value->cstring);
   }
 
   if (custom_api_tuple) {
